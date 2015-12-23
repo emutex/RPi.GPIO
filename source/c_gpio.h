@@ -38,6 +38,7 @@ void cleanup(void);
 #define SETUP_MMAP_FAIL    3
 #define SETUP_CPUINFO_FAIL 4
 #define SETUP_NOT_RPI_FAIL 5
+#define SETUP_EXPORT_FAIL  6
 
 #define INPUT  1 // is really 0 for control register!
 #define OUTPUT 0 // is really 1 for control register!

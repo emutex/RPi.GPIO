@@ -64,6 +64,9 @@ static int mmap_gpio_mem(void)
    } else if (result == SETUP_NOT_RPI_FAIL) {
       PyErr_SetString(PyExc_RuntimeError, "Not running on a RPi!");
       return 5;
+   } else if (result == SETUP_EXPORT_FAIL) {
+      PyErr_SetString(PyExc_RuntimeError, "Unable to export GPIO.  Try running as root!");
+      return 6;
    } else { // result == SETUP_OK
       module_setup = 1;
       return 0;

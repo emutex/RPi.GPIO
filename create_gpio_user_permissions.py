@@ -7,7 +7,7 @@ def ensure_gpiogroup():
     except KeyError:
         print('GPIO group does not exist - creating...')
         subprocess.call(['groupadd', '-f', '-r', 'gpio'])
-        subprocess.call(['adduser', 'pi', 'gpio'])
+        subprocess.call(['adduser', 'ubilinux', 'gpio'])
         # in future, also for groups:
         #   spi
         #   i2c

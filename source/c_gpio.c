@@ -99,20 +99,20 @@ static struct up_gpio_pin_desc up_gpio_pins[] = {
 	CHT_PAD(&cht_gpio_mmr_SW, 65), /*  1 */
 	CHT_PAD(&cht_gpio_mmr_SW, 60), /*  2 */
 	CHT_PAD(&cht_gpio_mmr_SW, 63), /*  3 */
-	CHT_PAD(&cht_gpio_mmr_SE,  7), /*  4 */
-	CHT_PAD(&cht_gpio_mmr_SE,  4), /*  5 */
-	CHT_PAD(&cht_gpio_mmr_SE,  3), /*  6 */
-	CHT_PAD(&cht_gpio_mmr_N,  52), /*  7 */
-	CHT_PAD(&cht_gpio_mmr_N,  47), /*  8 */
-	CHT_PAD(&cht_gpio_mmr_E,  20), /*  9 */
-	CHT_PAD(&cht_gpio_mmr_E,  23), /* 10 */
-	CHT_PAD(&cht_gpio_mmr_E,  17), /* 11 */
-	CHT_PAD(&cht_gpio_mmr_SE,  1), /* 12 */
-	CHT_PAD(&cht_gpio_mmr_SE,  5), /* 13 */
+	CHT_PAD(&cht_gpio_mmr_E,  21), /*  4 */
+	CHT_PAD(&cht_gpio_mmr_E,  24), /*  5 */
+	CHT_PAD(&cht_gpio_mmr_E,  15), /*  6 */
+	CHT_PAD(&cht_gpio_mmr_SE, 79), /*  7 */
+	CHT_PAD(&cht_gpio_mmr_SE,  7), /*  8 */
+	CHT_PAD(&cht_gpio_mmr_SE,  3), /*  9 */
+	CHT_PAD(&cht_gpio_mmr_SE,  6), /* 10 */
+	CHT_PAD(&cht_gpio_mmr_SE,  4), /* 11 */
+	CHT_PAD(&cht_gpio_mmr_SE,  5), /* 12 */
+	CHT_PAD(&cht_gpio_mmr_SE,  1), /* 13 */
 	CHT_PAD(&cht_gpio_mmr_SW, 20), /* 14 */
 	CHT_PAD(&cht_gpio_mmr_SW, 16), /* 15 */
 	CHT_PAD(&cht_gpio_mmr_N,   6), /* 16 */
-	CHT_PAD(&cht_gpio_mmr_SE,  6), /* 17 */
+	CHT_PAD(&cht_gpio_mmr_E,  18), /* 17 */
 	CHT_PAD(&cht_gpio_mmr_SW, 31), /* 18 */
 	CHT_PAD(&cht_gpio_mmr_SW, 35), /* 19 */
 	CHT_PAD(&cht_gpio_mmr_SW, 33), /* 20 */

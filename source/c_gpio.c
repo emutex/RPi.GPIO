@@ -43,9 +43,12 @@ struct gpio_chip_mmr {
 };
 	
 struct up_gpio_pin_desc {
-	struct gpio_chip_mmr *mmr;
-	unsigned pad;
-	unsigned offset;
+    struct gpio_chip_mmr *mmr;
+    unsigned pad;
+    unsigned offset;
+    int val_fd;
+    int dir_fd;
+    int initialised;
 };
 
 static struct gpio_chip_mmr cht_gpio_mmr_SW = {
@@ -125,29 +128,45 @@ static struct up_gpio_pin_desc up_gpio_pins[] = {
 	CHT_PAD(&cht_gpio_mmr_SW, 17), /* 27 */
 };	  
 
+static int export_fd = -1;
+
 /************* /sys/class/gpio functions ************/
-static int sysfs_gpio_export(unsigned int gpio)
+
+int setup(void)
 {
-    int fd, len;
+    if ((export_fd = open("/sys/class/gpio/export", O_WRONLY)) < 0)
+       return SETUP_EXPORT_FAIL;
+
+    return SETUP_OK;
+}
+
+int init_gpio(int gpio)
+{
+    int len;
     char str_gpio[3];
     char filename[33];
+    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
 
     snprintf(filename, sizeof(filename),
              "/sys/class/gpio/gpio%d/value", gpio);
-    if (0 == access(filename, F_OK))
-        return 0; // Already exported
-
-    if ((fd = open("/sys/class/gpio/export", O_WRONLY)) < 0)
-       return -1;
-
-    len = snprintf(str_gpio, sizeof(str_gpio), "%d", gpio);
-    if (write(fd, str_gpio, len) != len)
+    if (0 != access(filename, F_OK))
     {
-        close(fd);
-        return -1;
+        len = snprintf(str_gpio, sizeof(str_gpio), "%d", gpio);
+        lseek(export_fd, 0, SEEK_SET);
+        if (write(export_fd, str_gpio, len) != len)
+            return SETUP_EXPORT_FAIL;
     }
 
-    close(fd);
+    if (!(pd->mmr->virt))
+    {
+        if ((pd->mmr->fd = open("/dev/mem", O_RDWR | O_SYNC)) >= 0)
+        {
+            void *virt = mmap(NULL, pd->mmr->size, PROT_READ | PROT_WRITE,
+                              MAP_SHARED, pd->mmr->fd, pd->mmr->phys);
+            if (MAP_FAILED != virt)
+                pd->mmr->virt = virt;
+        }
+    }
 
     // arbitary delay to allow udev time to set user permissions
     struct timespec delay;
@@ -155,140 +174,21 @@ static int sysfs_gpio_export(unsigned int gpio)
     delay.tv_nsec = 50000000L; // 50ms
     nanosleep(&delay, NULL);
 
-    return 0;
-}
-
-static int sysfs_gpio_unexport(unsigned int gpio)
-{
-    int fd, len;
-    char str_gpio[3];
-
-    if ((fd = open("/sys/class/gpio/unexport", O_WRONLY)) < 0)
-        return -1;
-
-    len = snprintf(str_gpio, sizeof(str_gpio), "%d", gpio);
-    if (write(fd, str_gpio, len) != len)
-    {
-        close(fd);
-        return -1;
-    }
-
-    close(fd);
-    return 0;
-}
-
-static int sysfs_gpio_set_direction(unsigned int gpio, unsigned int in_flag)
-{
-    int fd;
-    char filename[33];
-    char *str_dir;
-
     snprintf(filename, sizeof(filename),
              "/sys/class/gpio/gpio%d/direction", gpio);
-    if ((fd = open(filename, O_WRONLY)) < 0)
-        return -1;
+    if ((pd->dir_fd = open(filename, O_RDWR | O_SYNC)) < 0)
+        return SETUP_EXPORT_FAIL;
 
-    if (in_flag)
-        str_dir = "in";
-    else
-        str_dir = "out";
-
-    if (write(fd, str_dir, strlen(str_dir)) != strlen(str_dir))
+    // Fall back to sysfs access if unable to access /dev/mem
+    if (!(pd->mmr->virt))
     {
-        close(fd);
-        return -1;
-    }
-
-    close(fd);
-    return 0;
-}
-
-static int sysfs_gpio_get_direction(unsigned int gpio)
-{
-    int fd;
-    char filename[33];
-    char str_dir[3];
-    unsigned int in_flag = 0;
-
-    snprintf(filename, sizeof(filename),
-             "/sys/class/gpio/gpio%d/direction", gpio);
-    if ((fd = open(filename, O_RDONLY)) < 0)
-        return -1;
-
-    if (read(fd, str_dir, sizeof(str_dir)) > 0)
-        in_flag = (str_dir[0] == 'i');
-
-    close(fd);
-    return in_flag;
-}
-
-static int sysfs_gpio_set_value(unsigned int gpio, unsigned int value)
-{
-    int fd;
-    char filename[33];
-    char *str_val;
-
-    snprintf(filename, sizeof(filename),
-             "/sys/class/gpio/gpio%d/value", gpio);
-    if ((fd = open(filename, O_WRONLY)) < 0)
-        return -1;
-
-    if (value)
-        str_val = "1";
-    else
-        str_val = "0";
-
-    if (write(fd, str_val, strlen(str_val)) != strlen(str_val))
-    {
-        close(fd);
-        return -1;
-    }
-
-    close(fd);
-    return 0;
-}
-
-static int sysfs_gpio_get_value(unsigned int gpio)
-{
-    int fd;
-    char filename[33];
-    char str_val[2];
-    int value = 0;
-
-    snprintf(filename, sizeof(filename),
-             "/sys/class/gpio/gpio%d/value", gpio);
-    if ((fd = open(filename, O_RDONLY)) < 0)
-        return -1;
-
-    if (read(fd, str_val, sizeof(str_val)) > 0)
-        value = (str_val[0] == '1');
-
-    close(fd);
-    return value;
-}
-
-int setup(void)
-{
-    unsigned int gpio;
-
-    for (gpio = 0; gpio < sizeof(up_gpio_pins)/sizeof(up_gpio_pins[0]); gpio++)
-    {
-        struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-
-        if (sysfs_gpio_export(gpio))
+        snprintf(filename, sizeof(filename),
+                 "/sys/class/gpio/gpio%d/value", gpio);
+        if ((pd->val_fd = open(filename, O_RDWR | O_SYNC)) < 0)
             return SETUP_EXPORT_FAIL;
-
-        if (!(pd->mmr->virt))
-        {
-            if ((pd->mmr->fd = open("/dev/mem", O_RDWR | O_SYNC)) < 0)
-                return SETUP_DEVMEM_FAIL;
-
-            pd->mmr->virt = mmap(NULL, pd->mmr->size, PROT_READ | PROT_WRITE,
-                                MAP_SHARED, pd->mmr->fd, pd->mmr->phys);
-            if (MAP_FAILED == pd->mmr->virt)
-                return SETUP_MMAP_FAIL;
-        }
     }
+
+    pd->initialised = 1;
 
     return SETUP_OK;
 }
@@ -296,6 +196,10 @@ int setup(void)
 void clear_event_detect(int gpio)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
     if (pd->mmr->virt)
     {
         unsigned intr_line = CHT_PADREG(pd->mmr->virt, pd->offset);
@@ -309,6 +213,10 @@ void clear_event_detect(int gpio)
 int eventdetected(int gpio)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
     if (pd->mmr->virt)
     {
         unsigned intr_line = CHT_PADREG(pd->mmr->virt, pd->offset);
@@ -324,37 +232,65 @@ int eventdetected(int gpio)
 void set_rising_event(int gpio, int enable)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-    uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-    value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-    value |= CHT_PADREG1_INTCFG_RISING;
-    CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
+    if (pd->mmr->virt)
+    {
+        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
+        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
+        value |= CHT_PADREG1_INTCFG_RISING;
+        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+    }
 }
 
 void set_falling_event(int gpio, int enable)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-    uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-    value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-    value |= CHT_PADREG1_INTCFG_FALLING;
-    CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
+    if (pd->mmr->virt)
+    {
+        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
+        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
+        value |= CHT_PADREG1_INTCFG_FALLING;
+        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+    }
 }
 
 void set_high_event(int gpio, int enable)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-    uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-    value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-    value |= CHT_PADREG1_INTCFG_LEVEL;
-    CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
+    if (pd->mmr->virt)
+    {
+        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
+        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
+        value |= CHT_PADREG1_INTCFG_LEVEL;
+        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+    }
 }
 
 void set_low_event(int gpio, int enable)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-    uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-    value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-    value |= (CHT_PADREG1_INTCFG_LEVEL | CHT_PADREG1_INVRXTX_RXDATA);
-    CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
+    if (pd->mmr->virt)
+    {
+        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
+        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
+        value |= (CHT_PADREG1_INTCFG_LEVEL | CHT_PADREG1_INVRXTX_RXDATA);
+        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
+    }
 }
 
 void set_pullupdn(int gpio, int pud)
@@ -364,18 +300,49 @@ void set_pullupdn(int gpio, int pud)
 
 void setup_gpio(int gpio, int direction, int pud)
 {
+    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
     set_pullupdn(gpio, pud);
-    sysfs_gpio_set_direction(gpio, (direction == INPUT));
+
+    if (pd->dir_fd >= 0)
+    {
+        lseek(pd->dir_fd, 0, SEEK_SET);
+        if (direction == INPUT)
+            write(pd->dir_fd, "in", 2);
+        else
+            write(pd->dir_fd, "out", 3);
+    }
 }
 
 int gpio_function(int gpio)
 {
-    return sysfs_gpio_get_direction(gpio); // 0=input, 1=output
+    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
+    if (pd->dir_fd >= 0)
+    {
+        char str_dir[3];
+
+        lseek(pd->dir_fd, 0, SEEK_SET);
+        if (read(pd->dir_fd, str_dir, sizeof(str_dir)) > 0)
+            return (str_dir[0] == 'i') ? 0 : 1;
+    }
+
+    return 0;
 }
 
 void output_gpio(int gpio, int value)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
     if (pd->mmr->virt)
     {
         if (value)
@@ -383,35 +350,78 @@ void output_gpio(int gpio, int value)
         else
             CHT_PADREG(pd->mmr->virt, pd->offset) &= ~CHT_PADREG_0_GPIO_TX_MASK;
     }
-    else
-        sysfs_gpio_set_value(gpio, value);
+    else if (pd->val_fd >= 0)
+    {
+        lseek(pd->val_fd, 0, SEEK_SET);
+        write(pd->val_fd, value ? "1" : "0", 1);
+    }
 }
 
 int input_gpio(int gpio)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
+
+    if (!pd->initialised)
+        init_gpio(gpio);
+
     if (pd->mmr->virt)
         return !!(CHT_PADREG(pd->mmr->virt, pd->offset)
                   & CHT_PADREG_0_GPIO_RX_MASK);
-    else
-        return sysfs_gpio_get_value(gpio);
+    else if (pd->val_fd >= 0)
+    {
+        char str_val[2];
+
+        lseek(pd->val_fd, 0, SEEK_SET);
+        if (read(pd->val_fd, str_val, sizeof(str_val)) > 0)
+            return (str_val[0] == '1');
+    }
+
+    return 0;
 }
 
 void cleanup(void)
 {
     unsigned int gpio;
+    int unexport_fd;
+
+    close(export_fd);
+    export_fd = -1;
+
+    if ((unexport_fd = open("/sys/class/gpio/unexport", O_WRONLY)) < 0)
+       return;
 
     for (gpio = 0; gpio < sizeof(up_gpio_pins)/sizeof(up_gpio_pins[0]); gpio++)
     {
+        int len;
+        char str_gpio[3];
         struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
 
-        sysfs_gpio_unexport(gpio);
-
-        if (pd->mmr->virt)
+        if (pd->initialised)
         {
-            munmap(pd->mmr->virt, pd->mmr->size);
-            close(pd->mmr->fd);
-            pd->mmr->virt = NULL;
+            pd->initialised = 0;
+
+            if (pd->mmr->virt)
+            {
+                munmap(pd->mmr->virt, pd->mmr->size);
+                close(pd->mmr->fd);
+                pd->mmr->virt = NULL;
+            }
+
+            if (pd->dir_fd >= 0)
+                close(pd->dir_fd);
+
+            if (pd->val_fd >= 0)
+                close(pd->val_fd);
+
+            len = snprintf(str_gpio, sizeof(str_gpio), "%d", gpio);
+            lseek(unexport_fd, 0, SEEK_SET);
+            if (write(unexport_fd, str_gpio, len) != len)
+            {
+                close(unexport_fd);
+                return;
+            }
         }
     }
+
+    close(unexport_fd);
 }

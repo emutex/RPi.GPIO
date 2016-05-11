@@ -1,3 +1,9 @@
+rpi.gpio (0.6.3~jessie-1+ubi1) unstable; urgency=low
+
+  * Updated UP board port to rpi.gpio 0.6.3
+
+ -- ubilinux team <ubilinux@emutex.com>  Thu, 11 May 2017 10:18:56 +0100
+
 rpi.gpio (0.6.3~jessie-1) unstable; urgency=low
 
   * To match new Python package 0.6.3

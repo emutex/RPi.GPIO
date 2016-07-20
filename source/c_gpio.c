@@ -2,7 +2,7 @@
 Copyright (c) 2012-2015 Ben Croston
 
 Adapted for use on UP board (http://www.up-board.org/)
-Copyright (c) 2015 Emutex Ltd
+Copyright (c) 2016 Emutex Ltd
 Author: Dan O'Donovan <dan@emutex.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -35,98 +35,15 @@ SOFTWARE.
 #include <sys/time.h>
 #include "c_gpio.h"
 
-struct gpio_chip_mmr {
-    uint64_t phys;
-    void *virt;
-    unsigned size;
-    int fd;
-};
-	
+#define N_GPIO 28
+
 struct up_gpio_pin_desc {
-    struct gpio_chip_mmr *mmr;
-    unsigned pad;
-    unsigned offset;
     int val_fd;
     int dir_fd;
     int initialised;
 };
 
-static struct gpio_chip_mmr cht_gpio_mmr_SW = {
-    .phys = 0xfed80000,
-    .size = 0x8000
-};
-static struct gpio_chip_mmr cht_gpio_mmr_N  = {
-    .phys = 0xfed88000,
-    .size = 0x8000
-};
-static struct gpio_chip_mmr cht_gpio_mmr_E  = {
-    .phys = 0xfed90000,
-    .size = 0x8000
-};
-static struct gpio_chip_mmr cht_gpio_mmr_SE = {
-    .phys = 0xfed98000,
-    .size = 0x8000
-};
-
-#define CHT_INTSTAT_OFFSET 0x300
-
-#define CHT_PADREG0_INTSEL_SHIFT   28
-#define CHT_PADREG0_INTSEL_MASK    (0xf << CHT_PADREG0_INTSEL_SHIFT)
-
-#define CHT_PADREG1_INVRXTX_MASK   0xf0
-#define CHT_PADREG1_INVRXTX_RXDATA 0x40
-#define CHT_PADREG1_INTCFG_MASK    7
-#define CHT_PADREG1_INTCFG_FALLING 1
-#define CHT_PADREG1_INTCFG_RISING  2
-#define CHT_PADREG1_INTCFG_BOTH    3
-#define CHT_PADREG1_INTCFG_LEVEL   4
-
-#define CHT_PADREG_OFFSET(pad) \
-    (0x4400 + (0x400 * ((pad) / 15)) + (0x8 * ((pad) % 15)))
-
-#define CHT_PAD(m, p)               \
-{                                   \
-    .mmr = (m),                     \
-    .pad = (p),                     \
-    .offset = CHT_PADREG_OFFSET(p), \
-}
-
-#define CHT_PADREG_0_GPIO_TX_MASK 0x2
-#define CHT_PADREG_0_GPIO_RX_MASK 0x1
-
-#define CHT_PADREG(base, offset) \
-    *((volatile uint32_t *)(base + offset))
-
-static struct up_gpio_pin_desc up_gpio_pins[] = {
-	CHT_PAD(&cht_gpio_mmr_SW, 61), /*  0 */
-	CHT_PAD(&cht_gpio_mmr_SW, 65), /*  1 */
-	CHT_PAD(&cht_gpio_mmr_SW, 60), /*  2 */
-	CHT_PAD(&cht_gpio_mmr_SW, 63), /*  3 */
-	CHT_PAD(&cht_gpio_mmr_E,  21), /*  4 */
-	CHT_PAD(&cht_gpio_mmr_E,  24), /*  5 */
-	CHT_PAD(&cht_gpio_mmr_E,  15), /*  6 */
-	CHT_PAD(&cht_gpio_mmr_SE, 79), /*  7 */
-	CHT_PAD(&cht_gpio_mmr_SE,  7), /*  8 */
-	CHT_PAD(&cht_gpio_mmr_SE,  3), /*  9 */
-	CHT_PAD(&cht_gpio_mmr_SE,  6), /* 10 */
-	CHT_PAD(&cht_gpio_mmr_SE,  4), /* 11 */
-	CHT_PAD(&cht_gpio_mmr_SE,  5), /* 12 */
-	CHT_PAD(&cht_gpio_mmr_SE,  1), /* 13 */
-	CHT_PAD(&cht_gpio_mmr_SW, 20), /* 14 */
-	CHT_PAD(&cht_gpio_mmr_SW, 16), /* 15 */
-	CHT_PAD(&cht_gpio_mmr_N,   6), /* 16 */
-	CHT_PAD(&cht_gpio_mmr_E,  18), /* 17 */
-	CHT_PAD(&cht_gpio_mmr_SW, 31), /* 18 */
-	CHT_PAD(&cht_gpio_mmr_SW, 35), /* 19 */
-	CHT_PAD(&cht_gpio_mmr_SW, 33), /* 20 */
-	CHT_PAD(&cht_gpio_mmr_SW, 30), /* 21 */
-	CHT_PAD(&cht_gpio_mmr_N,   3), /* 22 */
-	CHT_PAD(&cht_gpio_mmr_N,   2), /* 23 */
-	CHT_PAD(&cht_gpio_mmr_N,   1), /* 24 */
-	CHT_PAD(&cht_gpio_mmr_SW, 21), /* 25 */
-	CHT_PAD(&cht_gpio_mmr_N,   7), /* 26 */
-	CHT_PAD(&cht_gpio_mmr_SW, 17), /* 27 */
-};	  
+static struct up_gpio_pin_desc up_gpio_pins[N_GPIO];
 
 static int export_fd = -1;
 
@@ -157,17 +74,6 @@ int init_gpio(int gpio)
             return SETUP_EXPORT_FAIL;
     }
 
-    if (!(pd->mmr->virt))
-    {
-        if ((pd->mmr->fd = open("/dev/mem", O_RDWR | O_SYNC)) >= 0)
-        {
-            void *virt = mmap(NULL, pd->mmr->size, PROT_READ | PROT_WRITE,
-                              MAP_SHARED, pd->mmr->fd, pd->mmr->phys);
-            if (MAP_FAILED != virt)
-                pd->mmr->virt = virt;
-        }
-    }
-
     // arbitary delay to allow udev time to set user permissions
     struct timespec delay;
     delay.tv_sec = 0;
@@ -179,133 +85,27 @@ int init_gpio(int gpio)
     if ((pd->dir_fd = open(filename, O_RDWR | O_SYNC)) < 0)
         return SETUP_EXPORT_FAIL;
 
-    // Fall back to sysfs access if unable to access /dev/mem
-    if (!(pd->mmr->virt))
-    {
-        snprintf(filename, sizeof(filename),
-                 "/sys/class/gpio/gpio%d/value", gpio);
-        if ((pd->val_fd = open(filename, O_RDWR | O_SYNC)) < 0)
-            return SETUP_EXPORT_FAIL;
-    }
+    snprintf(filename, sizeof(filename),
+        "/sys/class/gpio/gpio%d/value", gpio);
+    if ((pd->val_fd = open(filename, O_RDWR | O_SYNC)) < 0)
+        return SETUP_EXPORT_FAIL;
 
     pd->initialised = 1;
 
     return SETUP_OK;
 }
 
-void clear_event_detect(int gpio)
-{
-    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-
-    if (!pd->initialised)
-        init_gpio(gpio);
-
-    if (pd->mmr->virt)
-    {
-        unsigned intr_line = CHT_PADREG(pd->mmr->virt, pd->offset);
-        intr_line &= CHT_PADREG0_INTSEL_MASK;
-        intr_line >>= CHT_PADREG0_INTSEL_SHIFT;
-        
-        CHT_PADREG(pd->mmr->virt, CHT_INTSTAT_OFFSET) = (1 << intr_line);
-    }
-}
-
-int eventdetected(int gpio)
-{
-    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-
-    if (!pd->initialised)
-        init_gpio(gpio);
-
-    if (pd->mmr->virt)
-    {
-        unsigned intr_line = CHT_PADREG(pd->mmr->virt, pd->offset);
-        intr_line &= CHT_PADREG0_INTSEL_MASK;
-        intr_line >>= CHT_PADREG0_INTSEL_SHIFT;
-        
-        return !!(CHT_PADREG(pd->mmr->virt, CHT_INTSTAT_OFFSET)
-                  & (1 << intr_line));
-    }
-    return 0;
-}
-
-void set_rising_event(int gpio, int enable)
-{
-    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-
-    if (!pd->initialised)
-        init_gpio(gpio);
-
-    if (pd->mmr->virt)
-    {
-        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-        value |= CHT_PADREG1_INTCFG_RISING;
-        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
-    }
-}
-
-void set_falling_event(int gpio, int enable)
-{
-    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-
-    if (!pd->initialised)
-        init_gpio(gpio);
-
-    if (pd->mmr->virt)
-    {
-        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-        value |= CHT_PADREG1_INTCFG_FALLING;
-        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
-    }
-}
-
-void set_high_event(int gpio, int enable)
-{
-    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-
-    if (!pd->initialised)
-        init_gpio(gpio);
-
-    if (pd->mmr->virt)
-    {
-        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-        value |= CHT_PADREG1_INTCFG_LEVEL;
-        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
-    }
-}
-
-void set_low_event(int gpio, int enable)
-{
-    struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
-
-    if (!pd->initialised)
-        init_gpio(gpio);
-
-    if (pd->mmr->virt)
-    {
-        uint32_t value = CHT_PADREG(pd->mmr->virt, pd->offset + 0x4);
-        value &= ~(CHT_PADREG1_INTCFG_MASK | CHT_PADREG1_INVRXTX_MASK);
-        value |= (CHT_PADREG1_INTCFG_LEVEL | CHT_PADREG1_INVRXTX_RXDATA);
-        CHT_PADREG(pd->mmr->virt, pd->offset + 0x4) = value;
-    }
-}
-
-void set_pullupdn(int gpio, int pud)
-{
-    // TODO (current board design has fixed external pull-ups)
-}
-
+/*
+ * NOTE - pull up/down resistors can not be configured on
+ * on the external I/O pins on the UP board, so the pud
+ * parameter below is ignored
+ */
 void setup_gpio(int gpio, int direction, int pud)
 {
     struct up_gpio_pin_desc *pd = &up_gpio_pins[gpio];
 
     if (!pd->initialised)
         init_gpio(gpio);
-
-    set_pullupdn(gpio, pud);
 
     if (pd->dir_fd >= 0)
     {
@@ -332,6 +132,11 @@ int gpio_function(int gpio)
         if (read(pd->dir_fd, str_dir, sizeof(str_dir)) > 0)
             return (str_dir[0] == 'i') ? 0 : 1;
     }
+    /*
+     * TODO - use pinctrl debugfs information to see if the
+     * pin is currently in GPIO mode or an alternative mode?
+     * Avoid if it requires root access.
+     */
 
     return 0;
 }
@@ -343,14 +148,7 @@ void output_gpio(int gpio, int value)
     if (!pd->initialised)
         init_gpio(gpio);
 
-    if (pd->mmr->virt)
-    {
-        if (value)
-            CHT_PADREG(pd->mmr->virt, pd->offset) |= CHT_PADREG_0_GPIO_TX_MASK;
-        else
-            CHT_PADREG(pd->mmr->virt, pd->offset) &= ~CHT_PADREG_0_GPIO_TX_MASK;
-    }
-    else if (pd->val_fd >= 0)
+    if (pd->val_fd >= 0)
     {
         lseek(pd->val_fd, 0, SEEK_SET);
         write(pd->val_fd, value ? "1" : "0", 1);
@@ -364,10 +162,7 @@ int input_gpio(int gpio)
     if (!pd->initialised)
         init_gpio(gpio);
 
-    if (pd->mmr->virt)
-        return !!(CHT_PADREG(pd->mmr->virt, pd->offset)
-                  & CHT_PADREG_0_GPIO_RX_MASK);
-    else if (pd->val_fd >= 0)
+    if (pd->val_fd >= 0)
     {
         char str_val[2];
 
@@ -399,13 +194,6 @@ void cleanup(void)
         if (pd->initialised)
         {
             pd->initialised = 0;
-
-            if (pd->mmr->virt)
-            {
-                munmap(pd->mmr->virt, pd->mmr->size);
-                close(pd->mmr->fd);
-                pd->mmr->virt = NULL;
-            }
 
             if (pd->dir_fd >= 0)
                 close(pd->dir_fd);

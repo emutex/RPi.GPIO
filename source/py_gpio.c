@@ -212,16 +212,6 @@ static PyObject *py_setup_channel(PyObject *self, PyObject *args, PyObject *kwar
          PyErr_WarnEx(NULL, "This channel is already in use, continuing anyway.  Use GPIO.setwarnings(False) to disable warnings.", 1);
       }
 
-      // warn about pull/up down on i2c channels
-      if (gpio_warnings) {
-         if (rpiinfo.p1_revision == 0) { // compute module - do nothing
-         } else if ((rpiinfo.p1_revision == 1 && (gpio == 0 || gpio == 1)) ||
-                    (gpio == 2 || gpio == 3)) {
-            if (pud == PUD_UP || pud == PUD_DOWN)
-               PyErr_WarnEx(NULL, "A physical pull up resistor is fitted on this channel!", 1);
-         }
-      }
-
       if (direction == OUTPUT && (initial == LOW || initial == HIGH)) {
          output_gpio(gpio, initial);
       }
@@ -283,8 +273,8 @@ static PyObject *py_setup_channel(PyObject *self, PyObject *args, PyObject *kwar
       pud = PUD_OFF + PY_PUD_CONST_OFFSET;
 
    pud -= PY_PUD_CONST_OFFSET;
-   if (pud != PUD_OFF && pud != PUD_DOWN && pud != PUD_UP) {
-      PyErr_SetString(PyExc_ValueError, "Invalid value for pull_up_down - should be either PUD_OFF, PUD_UP or PUD_DOWN");
+   if (pud != PUD_OFF) {
+      PyErr_SetString(PyExc_ValueError, "Invalid value for pull_up_down - should be PUD_OFF");
       return NULL;
    }
 
@@ -954,10 +944,10 @@ static PyObject *py_setwarnings(PyObject *self, PyObject *args)
    Py_RETURN_NONE;
 }
 
-static const char moduledocstring[] = "GPIO functionality of a Raspberry Pi using Python";
+static const char moduledocstring[] = "GPIO functionality of an UP board using Python";
 
 PyMethodDef rpi_gpio_methods[] = {
-   {"setup", (PyCFunction)py_setup_channel, METH_VARARGS | METH_KEYWORDS, "Set up a GPIO channel or list of channels with a direction and (optional) pull/up down control\nchannel        - either board pin number or BCM number depending on which mode is set.\ndirection      - IN or OUT\n[pull_up_down] - PUD_OFF (default), PUD_UP or PUD_DOWN\n[initial]      - Initial value for an output channel"},
+   {"setup", (PyCFunction)py_setup_channel, METH_VARARGS | METH_KEYWORDS, "Set up a GPIO channel or list of channels with a direction and (optional) pull/up down control\nchannel        - either board pin number or BCM number depending on which mode is set.\ndirection      - IN or OUT\n[pull_up_down] - PUD_OFF (default, other values are unsupported)\n[initial]      - Initial value for an output channel"},
    {"cleanup", (PyCFunction)py_cleanup, METH_VARARGS | METH_KEYWORDS, "Clean up by resetting all GPIO channels that have been used by this program to INPUT with no pullup/pulldown and no event detection\n[channel] - individual channel or list/tuple of channels to clean up.  Default - clean every channel that has been used."},
    {"output", py_output_gpio, METH_VARARGS, "Output to a GPIO channel or list of channels\nchannel - either board pin number or BCM number depending on which mode is set.\nvalue   - 0/1 or False/True or LOW/HIGH"},
    {"input", py_input_gpio, METH_VARARGS, "Input from a GPIO channel.  Returns HIGH=1=True or LOW=0=False\nchannel - either board pin number or BCM number depending on which mode is set."},
@@ -1008,7 +998,7 @@ PyMODINIT_FUNC init_GPIO(void)
    // detect board revision and set up accordingly
    if (get_rpi_info(&rpiinfo))
    {
-      PyErr_SetString(PyExc_RuntimeError, "This module can only be run on a Raspberry Pi!");
+      PyErr_SetString(PyExc_RuntimeError, "This module can only be run on an UP board!");
       setup_error = 1;
 #if PY_MAJOR_VERSION > 2
       return NULL;

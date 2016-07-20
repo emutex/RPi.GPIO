@@ -64,12 +64,6 @@ void define_constants(PyObject *module)
    pud_off = Py_BuildValue("i", PUD_OFF + PY_PUD_CONST_OFFSET);
    PyModule_AddObject(module, "PUD_OFF", pud_off);
 
-   pud_up = Py_BuildValue("i", PUD_UP + PY_PUD_CONST_OFFSET);
-   PyModule_AddObject(module, "PUD_UP", pud_up);
-
-   pud_down = Py_BuildValue("i", PUD_DOWN + PY_PUD_CONST_OFFSET);
-   PyModule_AddObject(module, "PUD_DOWN", pud_down);
-
    rising_edge = Py_BuildValue("i", RISING_EDGE + PY_EVENT_CONST_OFFSET);
    PyModule_AddObject(module, "RISING", rising_edge);
 

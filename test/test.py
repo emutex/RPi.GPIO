@@ -146,30 +146,12 @@ class TestAAASetup(unittest.TestCase):
         self.assertEqual(GPIO.gpio_function(LOOP_OUT), GPIO.OUT)
         GPIO.cleanup()
 
-        # test warning when using pull up/down on i2c channels
-        GPIO.setmode(GPIO.BOARD)
-        if GPIO.RPI_INFO['P1_REVISION'] == 0: # compute module
-            pass    # test not vailid
-        else:  # revision 1, 2 or A+/B+
-            with warnings.catch_warnings(record=True) as w:
-                GPIO.setup(3, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-                self.assertEqual(w[0].category, RuntimeWarning)
-            with warnings.catch_warnings(record=True) as w:
-                GPIO.setup(5, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-                self.assertEqual(w[0].category, RuntimeWarning)
-            GPIO.cleanup()
-
         # test non integer channel
         GPIO.setmode(GPIO.BOARD)
         with self.assertRaises(ValueError):
             GPIO.setup('d', GPIO.OUT)
         with self.assertRaises(ValueError):
             GPIO.setup(('d',LED_PIN), GPIO.OUT)
-
-        # test setting pull_up_down on an output
-        GPIO.setmode(GPIO.BOARD)
-        with self.assertRaises(ValueError):
-            GPIO.setup(LOOP_OUT, GPIO.OUT, pull_up_down=GPIO.PUD_DOWN)
 
         # test setting initial on an input
         GPIO.setmode(GPIO.BOARD)
@@ -366,7 +348,7 @@ class TestSwitchBounce(unittest.TestCase):
 
     def setUp(self):
         GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(SWITCH_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup(SWITCH_PIN, GPIO.IN, pull_up_down=GPIO.PUD_OFF)
 
     @unittest.skipIf(non_interactive, 'Non interactive mode')
     def test_switchbounce(self):
